@@ -1,0 +1,17 @@
+COBALT SYSTEMS S.P.A.
+Via Industria 14, Milano
+
+INVOICE No. INV-2210
+Date: 20/10/2026
+Payment due: 15/10/2026
+
+Bill to: ACME Distribution S.r.l. - Corso Buenos Aires 1, 20124 Milano
+
+Description                                Qty    Unit price        Amount
+Barcode scanners                            12        179.90       2158.80
+
+Taxable amount                                                     2158.80
+VAT                                                                 474.94
+TOTAL DUE (EUR)                                                    2633.74
+
+Bank transfer - IBAN on file. Thank you for your business.

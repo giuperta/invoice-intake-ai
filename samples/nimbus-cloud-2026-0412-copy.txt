@@ -1,0 +1,18 @@
+NIMBUS CLOUD S.R.L.
+VAT No. IT04829310962
+
+INVOICE No. 2026/0412
+Date: 03/10/2026
+Payment due: 02/11/2026
+
+Bill to: ACME Distribution S.r.l. - Corso Buenos Aires 1, 20124 Milano
+
+Description                                Qty    Unit price        Amount
+Managed Kubernetes cluster - October         1       1450.00       1450.00
+Object storage (TB)                        3.5         38.00        133.00
+
+Taxable amount                                                     1583.00
+VAT                                                                 348.26
+TOTAL DUE (EUR)                                                    1931.26
+
+Bank transfer - IBAN on file. Thank you for your business.
