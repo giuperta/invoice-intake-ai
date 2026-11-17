@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice Intake AI</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #677085; --line: #e3e6eb;
+    --accent: #2f5bd3; --ok: #1f8a4c; --ok-bg: #e5f5ec; --warn: #a15c00; --warn-bg: #fff2dc;
+    --bad: #b42335; --bad-bg: #fde8eb; --info-bg: #e8eefc;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  header .actions { margin-left: auto; display: flex; gap: 8px; }
+  button, .btn { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 7px 12px; border-radius: 6px; cursor: pointer; text-decoration: none; }
+  .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.approve { background: var(--ok); border-color: var(--ok); color: #fff; }
+  button.reject { color: var(--bad); border-color: var(--bad); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  main { display: grid; grid-template-columns: minmax(380px, 1fr) 1.2fr; gap: 16px; padding: 16px 24px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .panel h2 { font-size: 14px; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px 24px 0; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat .n { font-size: 22px; font-weight: 650; }
+  .stat .l { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 16px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover, tbody tr.sel { background: #f2f5fd; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 550; white-space: nowrap; }
+  .needs_review { background: var(--warn-bg); color: var(--warn); }
+  .ready_for_approval { background: var(--info-bg); color: var(--accent); }
+  .approved { background: var(--ok-bg); color: var(--ok); }
+  .rejected, .extraction_failed { background: var(--bad-bg); color: var(--bad); }
+  .detail { padding: 16px; }
+  .fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 16px; margin-bottom: 14px; }
+  .fields div span { display: block; color: var(--muted); font-size: 12px; }
+  .issues { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+  .issues ul { margin: 4px 0 0; padding-left: 18px; }
+  .okbox { background: var(--ok-bg); color: var(--ok); border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+  .review { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+  .review input { font: inherit; padding: 7px 10px; min-width: 0; border: 1px solid var(--line); border-radius: 6px; }
+  .empty { color: var(--muted); padding: 40px 16px; text-align: center; }
+  #msg { color: var(--bad); margin-left: 8px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } .stats { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Invoice Intake AI</h1>
+    <div class="sub">Extracted by Claude · verified in code · approved by a human</div>
+  </div>
+  <div class="actions">
+    <label class="btn primary">Upload invoice<input id="file" type="file" accept=".pdf,.txt" hidden></label>
+    <a class="btn" href="/api/invoices/export.csv">Export approved (CSV)</a>
+  </div>
+</header>
+
+<section class="stats" id="stats"></section>
+
+<main>
+  <section class="panel">
+    <h2>Invoices <span id="count" class="sub"></span></h2>
+    <table>
+      <thead><tr><th>Supplier</th><th>Number</th><th class="num">Total</th><th>Status</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+  <section class="panel">
+    <h2>Details</h2>
+    <div id="detail" class="empty">Select an invoice to review it.</div>
+  </section>
+</main>
+
+<script>
+const LABELS = {needs_review: "Needs review", ready_for_approval: "Ready", approved: "Approved",
+                rejected: "Rejected", extraction_failed: "Failed"};
+const money = (v, c) => v == null ? "—" : Number(v).toLocaleString("en-GB", {style: "currency", currency: c || "EUR"});
+const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+let invoices = [], selected = null;
+
+async function load() {
+  invoices = await (await fetch("/api/invoices")).json();
+  const count = s => invoices.filter(i => i.status === s).length;
+  document.getElementById("stats").innerHTML = [
+    ["Needs review", count("needs_review")], ["Ready to approve", count("ready_for_approval")],
+    ["Approved", count("approved")], ["Rejected / failed", count("rejected") + count("extraction_failed")],
+  ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+  document.getElementById("count").textContent = `${invoices.length} total`;
+  document.getElementById("rows").innerHTML = invoices.map(i => `
+    <tr data-id="${i.id}" class="${i.id === selected ? "sel" : ""}">
+      <td>${esc(i.data?.supplier_name || i.filename)}</td>
+      <td>${esc(i.data?.invoice_number || "—")}</td>
+      <td class="num">${i.data ? money(i.data.total_amount, i.data.currency) : "—"}</td>
+      <td><span class="badge ${i.status}">${LABELS[i.status]}</span></td>
+    </tr>`).join("");
+  document.querySelectorAll("#rows tr").forEach(tr => tr.onclick = () => show(+tr.dataset.id));
+  if (selected) show(selected);
+}
+
+function show(id) {
+  selected = id;
+  document.querySelectorAll("#rows tr").forEach(tr => tr.classList.toggle("sel", +tr.dataset.id === id));
+  const inv = invoices.find(i => i.id === id), d = inv.data, el = document.getElementById("detail");
+  el.className = "detail";
+  const closed = inv.status === "approved" || inv.status === "rejected";
+  el.innerHTML = `
+    <div class="fields">
+      <div><span>Supplier</span>${esc(d?.supplier_name || "—")}</div>
+      <div><span>VAT number</span>${esc(d?.supplier_vat_id || "—")}</div>
+      <div><span>Invoice no.</span>${esc(d?.invoice_number || "—")}</div>
+      <div><span>Issue date</span>${esc(d?.issue_date || "—")}</div>
+      <div><span>Due date</span>${esc(d?.due_date || "—")}</div>
+      <div><span>File</span>${esc(inv.filename)}</div>
+    </div>
+    ${d ? `<table>
+      <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Amount</th></tr></thead>
+      <tbody>${d.line_items.map(l => `<tr><td>${esc(l.description)}</td><td class="num">${l.quantity}</td>
+        <td class="num">${money(l.unit_price, d.currency)}</td><td class="num">${money(l.line_total, d.currency)}</td></tr>`).join("")}
+        <tr><td colspan="3" class="num">Net</td><td class="num">${money(d.net_amount, d.currency)}</td></tr>
+        <tr><td colspan="3" class="num">VAT</td><td class="num">${money(d.vat_amount, d.currency)}</td></tr>
+        <tr><td colspan="3" class="num"><b>Total</b></td><td class="num"><b>${money(d.total_amount, d.currency)}</b></td></tr>
+      </tbody></table>` : ""}
+    ${inv.issues.length ? `<div class="issues"><b>Automatic checks found ${inv.issues.length} issue(s)</b>
+        <ul>${inv.issues.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>`
+      : d ? `<div class="okbox">All automatic checks passed.</div>` : ""}
+    ${closed ? `<p class="sub">${LABELS[inv.status]} by <b>${esc(inv.reviewed_by)}</b>${inv.review_note ? ` — “${esc(inv.review_note)}”` : ""}</p>`
+      : `<div class="review">
+          <input id="reviewer" placeholder="Your name" value="${esc(localStorage.getItem("reviewer") || "")}">
+          <input id="note" placeholder="Note (required to reject)" size="22">
+          <button class="approve" ${inv.status !== "ready_for_approval" ? "disabled title='Resolve issues first'" : ""} onclick="decide(${id}, 'approve')">Approve</button>
+          <button class="reject" onclick="decide(${id}, 'reject')">Reject</button>
+          <span id="msg"></span>
+        </div>`}`;
+}
+
+async function decide(id, action) {
+  const reviewer = document.getElementById("reviewer").value.trim();
+  const note = document.getElementById("note").value.trim() || null;
+  try { localStorage.setItem("reviewer", reviewer); } catch (e) {}
+  const res = await fetch(`/api/invoices/${id}/${action}`, {method: "POST",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify({reviewer, note})});
+  if (!res.ok) { document.getElementById("msg").textContent = (await res.json()).detail?.toString() || "Error"; return; }
+  load();
+}
+
+document.getElementById("file").onchange = async e => {
+  const body = new FormData(); body.append("file", e.target.files[0]);
+  const res = await fetch("/api/invoices", {method: "POST", body});
+  if (res.ok) { selected = (await res.json()).id; } else { alert((await res.json()).detail); }
+  e.target.value = ""; load();
+};
+load();
+</script>
+</body>
+</html>
